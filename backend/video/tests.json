@@ -1,0 +1,25 @@
+{
+  "tests": [
+    {
+      "name": "Get current video",
+      "method": "GET",
+      "path": "/?action=current_video",
+      "expectedStatus": 200,
+      "expectedBody": {
+        "title": "string",
+        "vkUrl": "string"
+      },
+      "bodyMatcher": "partial"
+    },
+    {
+      "name": "Get active poll",
+      "method": "GET",
+      "path": "/?action=active_poll",
+      "expectedStatus": 200,
+      "expectedBody": {
+        "active": "boolean"
+      },
+      "bodyMatcher": "partial"
+    }
+  ]
+}

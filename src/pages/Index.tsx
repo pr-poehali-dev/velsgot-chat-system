@@ -4,46 +4,16 @@ import { Input } from '@/components/ui/input';
 import { Card } from '@/components/ui/card';
 import { Badge } from '@/components/ui/badge';
 import { ScrollArea } from '@/components/ui/scroll-area';
-import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogTrigger, DialogFooter } from '@/components/ui/dialog';
+import { Dialog, DialogContent, DialogHeader, DialogTitle } from '@/components/ui/dialog';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
 import Icon from '@/components/ui/icon';
 import { useToast } from '@/hooks/use-toast';
 import { Label } from '@/components/ui/label';
+import VKPlayer from '@/components/VKPlayer';
+import { authApi, chatApi, videoApi, type User, type Message, type PollOption, type Video } from '@/lib/api';
 
-type UserRole = 'user' | 'junior-admin' | 'admin' | 'senior-admin' | 'creator';
-
-interface User {
-  id: number;
-  username: string;
-  password: string;
-  role: UserRole;
-  isBanned: boolean;
-  isChatMuted: boolean;
-}
-
-interface Message {
-  id: number;
-  username: string;
-  role: UserRole;
-  text: string;
-  timestamp: Date;
-}
-
-interface VideoOption {
-  id: number;
-  title: string;
-  vkUrl: string;
-  votes: number;
-}
-
-interface Video {
-  id: string;
-  title: string;
-  vkUrl: string;
-  description: string;
-}
-
-const roleColors: Record<UserRole, string> = {
+const roleColors: Record<string, string> = {
   'user': 'text-gray-400',
   'junior-admin': 'text-cyan-400',
   'admin': 'text-yellow-400',
@@ -51,7 +21,7 @@ const roleColors: Record<UserRole, string> = {
   'creator': 'text-red-500'
 };
 
-const roleNames: Record<UserRole, string> = {
+const roleNames: Record<string, string> = {
   'user': 'Пользователь',
   'junior-admin': 'Младший админ',
   'admin': 'Админ',
@@ -66,38 +36,18 @@ export default function Index() {
   const [authUsername, setAuthUsername] = useState('');
   const [authPassword, setAuthPassword] = useState('');
   
-  const [users, setUsers] = useState<User[]>([
-    { id: 1, username: 'Создатель', password: 'admin123', role: 'creator', isBanned: false, isChatMuted: false },
-    { id: 2, username: 'СтаршийАдмин', password: 'admin', role: 'senior-admin', isBanned: false, isChatMuted: false },
-    { id: 3, username: 'Админ', password: 'mod', role: 'admin', isBanned: false, isChatMuted: false },
-    { id: 4, username: 'Юзер1', password: '123', role: 'user', isBanned: false, isChatMuted: false },
-  ]);
-  
+  const [users, setUsers] = useState<User[]>([]);
   const [currentUser, setCurrentUser] = useState<User | null>(null);
-  const [onlineUsers, setOnlineUsers] = useState<User[]>([]);
   
-  const [messages, setMessages] = useState<Message[]>([
-    { id: 1, username: 'Юзер1', role: 'user', text: 'Привет всем!', timestamp: new Date() },
-    { id: 2, username: 'Админ', role: 'admin', text: 'Добро пожаловать на VELSGOT!', timestamp: new Date() },
-  ]);
-  
+  const [messages, setMessages] = useState<Message[]>([]);
   const [messageText, setMessageText] = useState('');
-  const [chatEnabled, setChatEnabled] = useState(true);
+  const [chatEnabled] = useState(true);
   const [showAdminPanel, setShowAdminPanel] = useState(false);
   
-  const [currentVideo, setCurrentVideo] = useState<Video>({
-    id: '1',
-    title: 'Эпичное видео #1',
-    vkUrl: 'https://vk.com/video-12345_67890',
-    description: 'Смотрите самые захватывающие моменты! Невероятные трюки и эмоции.'
-  });
+  const [currentVideo, setCurrentVideo] = useState<Video | null>(null);
   
-  const [pollActive, setPollActive] = useState(true);
-  const [pollOptions, setPollOptions] = useState<VideoOption[]>([
-    { id: 1, title: 'Топ приколы недели', vkUrl: 'https://vk.com/video-11111_11111', votes: 5 },
-    { id: 2, title: 'Лучшие моменты стримов', vkUrl: 'https://vk.com/video-22222_22222', votes: 3 },
-    { id: 3, title: 'Эпичные клипы', vkUrl: 'https://vk.com/video-33333_33333', votes: 7 },
-  ]);
+  const [pollActive, setPollActive] = useState(false);
+  const [pollOptions, setPollOptions] = useState<PollOption[]>([]);
   const [hasVoted, setHasVoted] = useState(false);
   
   const [userSearch, setUserSearch] = useState('');
@@ -112,9 +62,20 @@ export default function Index() {
     { title: '', url: '' },
     { title: '', url: '' }
   ]);
+
+  const [showRoleDialog, setShowRoleDialog] = useState(false);
+  const [selectedUserId, setSelectedUserId] = useState<number | null>(null);
+  const [selectedRole, setSelectedRole] = useState('');
   
   const chatScrollRef = useRef<HTMLDivElement>(null);
   const { toast } = useToast();
+
+  useEffect(() => {
+    loadVideo();
+    loadPoll();
+    loadMessages();
+    loadUsers();
+  }, []);
 
   useEffect(() => {
     if (chatScrollRef.current) {
@@ -123,158 +84,215 @@ export default function Index() {
   }, [messages]);
 
   useEffect(() => {
-    if (currentUser && !onlineUsers.find(u => u.id === currentUser.id)) {
-      setOnlineUsers([...onlineUsers, currentUser]);
-    }
-  }, [currentUser]);
+    const interval = setInterval(() => {
+      if (isLoggedIn) {
+        loadMessages();
+        loadUsers();
+      }
+    }, 3000);
+    return () => clearInterval(interval);
+  }, [isLoggedIn]);
 
-  const handleAuth = () => {
+  const loadVideo = async () => {
+    try {
+      const video = await videoApi.getCurrentVideo();
+      setCurrentVideo(video);
+    } catch (error) {
+      console.error('Error loading video:', error);
+    }
+  };
+
+  const loadPoll = async () => {
+    try {
+      const poll = await videoApi.getActivePoll();
+      setPollActive(poll.active);
+      if (poll.active && poll.options) {
+        setPollOptions(poll.options);
+      }
+    } catch (error) {
+      console.error('Error loading poll:', error);
+    }
+  };
+
+  const loadMessages = async () => {
+    try {
+      const msgs = await chatApi.getMessages(100);
+      setMessages(msgs.map(m => ({ ...m, timestamp: m.timestamp })));
+    } catch (error) {
+      console.error('Error loading messages:', error);
+    }
+  };
+
+  const loadUsers = async () => {
+    try {
+      const usersList = await authApi.getUsersList();
+      setUsers(usersList);
+    } catch (error) {
+      console.error('Error loading users:', error);
+    }
+  };
+
+  const handleAuth = async () => {
     if (!authUsername.trim() || !authPassword.trim()) {
       toast({ title: 'Заполните все поля', variant: 'destructive' });
       return;
     }
 
-    if (authMode === 'login') {
-      const user = users.find(u => u.username === authUsername && u.password === authPassword);
-      if (user) {
-        if (user.isBanned) {
-          toast({ title: 'Вы забанены', variant: 'destructive' });
-          return;
-        }
-        setCurrentUser(user);
-        setIsLoggedIn(true);
-        setShowAuthDialog(false);
+    try {
+      let user: User;
+      if (authMode === 'login') {
+        user = await authApi.login(authUsername, authPassword);
         toast({ title: `Добро пожаловать, ${user.username}!` });
       } else {
-        toast({ title: 'Неверный логин или пароль', variant: 'destructive' });
+        user = await authApi.register(authUsername, authPassword);
+        toast({ title: 'Регистрация успешна!' });
       }
-    } else {
-      if (users.find(u => u.username === authUsername)) {
-        toast({ title: 'Пользователь уже существует', variant: 'destructive' });
-        return;
-      }
-      const newUser: User = {
-        id: Date.now(),
-        username: authUsername,
-        password: authPassword,
-        role: 'user',
-        isBanned: false,
-        isChatMuted: false
-      };
-      setUsers([...users, newUser]);
-      setCurrentUser(newUser);
+      
+      setCurrentUser(user);
       setIsLoggedIn(true);
       setShowAuthDialog(false);
-      toast({ title: 'Регистрация успешна!' });
+      setAuthUsername('');
+      setAuthPassword('');
+      
+      await loadUsers();
+      await loadMessages();
+    } catch (error: any) {
+      toast({ title: error.message, variant: 'destructive' });
     }
-    
-    setAuthUsername('');
-    setAuthPassword('');
   };
 
-  const sendMessage = () => {
+  const sendMessage = async () => {
     if (!currentUser || !messageText.trim() || !chatEnabled) return;
     
-    if (currentUser.isChatMuted) {
-      toast({ title: 'Вам заблокирован чат', variant: 'destructive' });
-      return;
+    try {
+      await chatApi.sendMessage(currentUser.id, messageText);
+      setMessageText('');
+      await loadMessages();
+    } catch (error: any) {
+      toast({ title: error.message, variant: 'destructive' });
     }
-    
-    const newMessage: Message = {
-      id: Date.now(),
-      username: currentUser.username,
-      role: currentUser.role,
-      text: messageText,
-      timestamp: new Date()
-    };
-    
-    setMessages([...messages, newMessage]);
-    setMessageText('');
   };
 
-  const deleteMessage = (id: number) => {
-    setMessages(messages.filter(msg => msg.id !== id));
-    toast({ title: 'Сообщение удалено' });
-  };
-
-  const clearChat = () => {
-    setMessages([]);
-    toast({ title: 'Чат очищен' });
-  };
-
-  const toggleChat = () => {
-    setChatEnabled(!chatEnabled);
-    toast({ title: chatEnabled ? 'Чат отключён' : 'Чат включён' });
-  };
-
-  const toggleUserChatMute = (userId: number) => {
-    setUsers(users.map(u => u.id === userId ? { ...u, isChatMuted: !u.isChatMuted } : u));
-    const user = users.find(u => u.id === userId);
-    toast({ title: `Чат ${user?.isChatMuted ? 'разблокирован' : 'заблокирован'} для ${user?.username}` });
-  };
-
-  const toggleUserBan = (userId: number) => {
-    setUsers(users.map(u => u.id === userId ? { ...u, isBanned: !u.isBanned } : u));
-    const user = users.find(u => u.id === userId);
-    if (!user?.isBanned) {
-      setOnlineUsers(onlineUsers.filter(u => u.id !== userId));
+  const deleteMessage = async (id: number) => {
+    try {
+      await chatApi.deleteMessage(id);
+      await loadMessages();
+      toast({ title: 'Сообщение удалено' });
+    } catch (error: any) {
+      toast({ title: error.message, variant: 'destructive' });
     }
-    toast({ title: `${user?.username} ${user?.isBanned ? 'разбанен' : 'забанен'}` });
   };
 
-  const vote = (optionId: number) => {
-    if (!isLoggedIn || hasVoted) return;
+  const clearChat = async () => {
+    try {
+      await chatApi.clearChat();
+      await loadMessages();
+      toast({ title: 'Чат очищен' });
+    } catch (error: any) {
+      toast({ title: error.message, variant: 'destructive' });
+    }
+  };
+
+  const toggleUserChatMute = async (userId: number) => {
+    try {
+      await authApi.toggleChatMute(userId);
+      await loadUsers();
+      const user = users.find(u => u.id === userId);
+      toast({ title: `Чат ${user?.isChatMuted ? 'разблокирован' : 'заблокирован'} для ${user?.username}` });
+    } catch (error: any) {
+      toast({ title: error.message, variant: 'destructive' });
+    }
+  };
+
+  const toggleUserBan = async (userId: number) => {
+    try {
+      await authApi.toggleBan(userId);
+      await loadUsers();
+      const user = users.find(u => u.id === userId);
+      toast({ title: `${user?.username} ${user?.isBanned ? 'разбанен' : 'забанен'}` });
+    } catch (error: any) {
+      toast({ title: error.message, variant: 'destructive' });
+    }
+  };
+
+  const vote = async (optionId: number) => {
+    if (!isLoggedIn || !currentUser || hasVoted) return;
     
-    setPollOptions(pollOptions.map(opt => 
-      opt.id === optionId ? { ...opt, votes: opt.votes + 1 } : opt
-    ));
-    setHasVoted(true);
-    toast({ title: 'Голос учтён!' });
+    try {
+      await videoApi.vote(currentUser.id, optionId);
+      setHasVoted(true);
+      await loadPoll();
+      toast({ title: 'Голос учтён!' });
+    } catch (error: any) {
+      toast({ title: error.message, variant: 'destructive' });
+    }
   };
 
-  const createPoll = () => {
+  const createPoll = async () => {
     const validVideos = newPollVideos.filter(v => v.title.trim() && v.url.trim());
     if (validVideos.length < 2) {
       toast({ title: 'Добавьте минимум 2 видео с ВК', variant: 'destructive' });
       return;
     }
     
-    setPollOptions(validVideos.map((video, i) => ({
-      id: i + 1,
-      title: video.title,
-      vkUrl: video.url,
-      votes: 0
-    })));
-    setHasVoted(false);
-    setPollActive(true);
-    setNewPollVideos([{ title: '', url: '' }, { title: '', url: '' }, { title: '', url: '' }]);
-    setShowPollDialog(false);
-    toast({ title: 'Голосование создано!' });
+    try {
+      await videoApi.createPoll(validVideos.map(v => ({ title: v.title, vkUrl: v.url })));
+      setHasVoted(false);
+      setNewPollVideos([{ title: '', url: '' }, { title: '', url: '' }, { title: '', url: '' }]);
+      setShowPollDialog(false);
+      await loadPoll();
+      toast({ title: 'Голосование создано!' });
+    } catch (error: any) {
+      toast({ title: error.message, variant: 'destructive' });
+    }
   };
 
-  const endPoll = () => {
-    setPollActive(false);
-    toast({ title: 'Голосование завершено' });
+  const endPoll = async () => {
+    try {
+      await videoApi.endPoll();
+      setPollActive(false);
+      toast({ title: 'Голосование завершено' });
+    } catch (error: any) {
+      toast({ title: error.message, variant: 'destructive' });
+    }
   };
 
-  const changeVideo = () => {
+  const changeVideo = async () => {
     if (!newVideoUrl.trim() || !newVideoTitle.trim()) {
       toast({ title: 'Заполните все поля', variant: 'destructive' });
       return;
     }
     
-    setCurrentVideo({
-      id: Date.now().toString(),
-      title: newVideoTitle,
-      vkUrl: newVideoUrl,
-      description: newVideoDesc
-    });
+    try {
+      const video = await videoApi.changeVideo(newVideoTitle, newVideoUrl, newVideoDesc);
+      setCurrentVideo(video);
+      setNewVideoUrl('');
+      setNewVideoTitle('');
+      setNewVideoDesc('');
+      setShowVideoChangeDialog(false);
+      toast({ title: 'Видео изменено!' });
+    } catch (error: any) {
+      toast({ title: error.message, variant: 'destructive' });
+    }
+  };
+
+  const openRoleDialog = (userId: number, currentRole: string) => {
+    setSelectedUserId(userId);
+    setSelectedRole(currentRole);
+    setShowRoleDialog(true);
+  };
+
+  const changeUserRole = async () => {
+    if (!selectedUserId || !selectedRole) return;
     
-    setNewVideoUrl('');
-    setNewVideoTitle('');
-    setNewVideoDesc('');
-    setShowVideoChangeDialog(false);
-    toast({ title: 'Видео изменено!' });
+    try {
+      await authApi.changeRole(selectedUserId, selectedRole);
+      await loadUsers();
+      setShowRoleDialog(false);
+      toast({ title: 'Роль изменена!' });
+    } catch (error: any) {
+      toast({ title: error.message, variant: 'destructive' });
+    }
   };
 
   const filteredUsers = users.filter(u => 
@@ -285,6 +303,9 @@ export default function Index() {
   const canManageUsers = currentUser && ['creator', 'admin', 'senior-admin', 'junior-admin'].includes(currentUser.role);
   const canChangeVideo = currentUser && ['creator', 'senior-admin'].includes(currentUser.role);
   const canManagePolls = currentUser && ['creator', 'admin', 'senior-admin'].includes(currentUser.role);
+  const canChangeRoles = currentUser && currentUser.role === 'creator';
+
+  const onlineUsers = users.filter(u => u.isOnline);
 
   return (
     <div className="min-h-screen bg-background text-foreground">
@@ -325,18 +346,12 @@ export default function Index() {
         <div className="grid lg:grid-cols-3 gap-6">
           <div className="lg:col-span-2 space-y-6">
             <Card className="glass-effect p-6">
-              <div className="aspect-video bg-muted rounded-lg flex items-center justify-center mb-4">
-                <div className="text-center space-y-2">
-                  <Icon name="Play" size={64} className="mx-auto text-primary" />
-                  <p className="text-muted-foreground">Видео плеер ВК</p>
-                  <p className="text-xs text-muted-foreground">{currentVideo.vkUrl}</p>
-                </div>
-              </div>
+              {currentVideo && <VKPlayer vkUrl={currentVideo.vkUrl} title={currentVideo.title} />}
               
-              <div className="flex items-start justify-between gap-4">
+              <div className="flex items-start justify-between gap-4 mt-4">
                 <div className="flex-1">
-                  <h3 className="font-bold text-lg mb-1">{currentVideo.title}</h3>
-                  <p className="text-sm text-muted-foreground">{currentVideo.description}</p>
+                  <h3 className="font-bold text-lg mb-1">{currentVideo?.title}</h3>
+                  <p className="text-sm text-muted-foreground">{currentVideo?.description}</p>
                 </div>
                 
                 {canChangeVideo && (
@@ -347,7 +362,7 @@ export default function Index() {
                     className="gap-2"
                   >
                     <Icon name="RefreshCw" size={16} />
-                    Сменить видео
+                    Сменить
                   </Button>
                 )}
               </div>
@@ -493,7 +508,7 @@ export default function Index() {
                                 </span>
                                 <p className="text-xs text-muted-foreground">{roleNames[user.role]}</p>
                               </div>
-                              {onlineUsers.find(u => u.id === user.id) && (
+                              {user.isOnline && (
                                 <Badge variant="outline" className="text-xs">
                                   <Icon name="Wifi" size={12} className="mr-1" />
                                   Online
@@ -502,25 +517,38 @@ export default function Index() {
                             </div>
                             
                             {user.id !== currentUser?.id && (
-                              <div className="flex gap-2">
-                                <Button
-                                  size="sm"
-                                  variant="outline"
-                                  onClick={() => toggleUserChatMute(user.id)}
-                                  className="flex-1"
-                                >
-                                  <Icon name={user.isChatMuted ? 'MessageSquare' : 'MessageSquareOff'} size={14} className="mr-1" />
-                                  {user.isChatMuted ? 'Разблокировать' : 'Заблокировать'}
-                                </Button>
-                                <Button
-                                  size="sm"
-                                  variant={user.isBanned ? 'default' : 'destructive'}
-                                  onClick={() => toggleUserBan(user.id)}
-                                  className="flex-1"
-                                >
-                                  <Icon name="Ban" size={14} className="mr-1" />
-                                  {user.isBanned ? 'Разбанить' : 'Забанить'}
-                                </Button>
+                              <div className="space-y-2">
+                                <div className="flex gap-2">
+                                  <Button
+                                    size="sm"
+                                    variant="outline"
+                                    onClick={() => toggleUserChatMute(user.id)}
+                                    className="flex-1"
+                                  >
+                                    <Icon name={user.isChatMuted ? 'MessageSquare' : 'MessageSquareOff'} size={14} className="mr-1" />
+                                    {user.isChatMuted ? 'Разблокировать' : 'Заблокировать'}
+                                  </Button>
+                                  <Button
+                                    size="sm"
+                                    variant={user.isBanned ? 'default' : 'destructive'}
+                                    onClick={() => toggleUserBan(user.id)}
+                                    className="flex-1"
+                                  >
+                                    <Icon name="Ban" size={14} className="mr-1" />
+                                    {user.isBanned ? 'Разбанить' : 'Забанить'}
+                                  </Button>
+                                </div>
+                                {canChangeRoles && (
+                                  <Button
+                                    size="sm"
+                                    variant="outline"
+                                    onClick={() => openRoleDialog(user.id, user.role)}
+                                    className="w-full"
+                                  >
+                                    <Icon name="UserCog" size={14} className="mr-1" />
+                                    Изменить роль
+                                  </Button>
+                                )}
                               </div>
                             )}
                           </div>
@@ -530,14 +558,6 @@ export default function Index() {
                   </TabsContent>
                   
                   <TabsContent value="chat" className="space-y-2">
-                    <Button 
-                      onClick={toggleChat} 
-                      variant="outline" 
-                      className="w-full justify-start"
-                    >
-                      <Icon name={chatEnabled ? 'MessageSquareOff' : 'MessageSquare'} size={18} className="mr-2" />
-                      {chatEnabled ? 'Отключить чат' : 'Включить чат'}
-                    </Button>
                     <Button 
                       onClick={clearChat} 
                       variant="outline" 
@@ -683,6 +703,31 @@ export default function Index() {
             ))}
             <Button onClick={createPoll} className="w-full">
               Создать голосование
+            </Button>
+          </div>
+        </DialogContent>
+      </Dialog>
+
+      <Dialog open={showRoleDialog} onOpenChange={setShowRoleDialog}>
+        <DialogContent>
+          <DialogHeader>
+            <DialogTitle>Изменить роль пользователя</DialogTitle>
+          </DialogHeader>
+          <div className="space-y-4">
+            <Select value={selectedRole} onValueChange={setSelectedRole}>
+              <SelectTrigger>
+                <SelectValue placeholder="Выберите роль" />
+              </SelectTrigger>
+              <SelectContent>
+                <SelectItem value="user">Пользователь</SelectItem>
+                <SelectItem value="junior-admin">Младший админ</SelectItem>
+                <SelectItem value="admin">Админ</SelectItem>
+                <SelectItem value="senior-admin">Старший админ</SelectItem>
+                <SelectItem value="creator">Создатель</SelectItem>
+              </SelectContent>
+            </Select>
+            <Button onClick={changeUserRole} className="w-full">
+              Изменить роль
             </Button>
           </div>
         </DialogContent>

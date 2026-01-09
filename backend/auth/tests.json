@@ -1,0 +1,25 @@
+{
+  "tests": [
+    {
+      "name": "Login user",
+      "method": "POST",
+      "body": {
+        "action": "login",
+        "username": "Создатель",
+        "password": "admin123"
+      },
+      "expectedStatus": 200,
+      "expectedBody": {
+        "username": "Создатель",
+        "role": "creator"
+      },
+      "bodyMatcher": "partial"
+    },
+    {
+      "name": "Get users list",
+      "method": "GET",
+      "path": "/?action=list",
+      "expectedStatus": 200
+    }
+  ]
+}
